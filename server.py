@@ -27,7 +27,7 @@ def handle_client(conn, addr, topo, client_table, lock, router_count, router_rea
         # JOIN message format: JOIN <RouterID>
         if data.startswith('JOIN'):
             _, rid = data.split()
-            print(f"Received JOIN from router {rid}")  # 添加更多日志
+            print(f"Received JOIN from router {rid}")
             
             # 检查是否已经处理过这个路由器
             with lock:
@@ -35,27 +35,34 @@ def handle_client(conn, addr, topo, client_table, lock, router_count, router_rea
                     print(f"Router {rid} already registered, closing duplicate connection")
                     return
                 
-                # 检查路由器ID是否在拓扑中
-                if rid not in topo:
-                    print(f"Warning: Router {rid} not in topology, but accepting connection")
-                
+                # 记录这个路由器的连接
                 client_table[rid] = conn
-                print(f"Connected routers: {list(client_table.keys())}")  # 打印当前连接的路由器
+                print(f"Connected routers: {list(client_table.keys())}")
                 
-                # Check if all routers are connected
-                if len(client_table) == router_count:
-                    if not router_ready.is_set():  # 防止重复设置
-                        print(f"All {router_count} routers connected. Setting ready event.")
-                        router_ready.set()
-                        # 通知所有客户端开始DV算法
-                        for router_id, router_conn in client_table.items():
-                            try:
-                                router_conn.sendall(f"START\n".encode())
-                                print(f"Sent START to {router_id}")  # 日志
-                            except Exception as e:
-                                print(f"Failed to send START to {router_id}: {e}")
-                else:
-                    print(f"Router {rid} connected. Waiting for {router_count - len(client_table)} more routers.")
+                if len(client_table) > router_count:
+                    print(f"Warning: More routers ({len(client_table)}) than expected ({router_count})")
+            
+            # 先给当前路由器发送RESPONSE，确保它知道自己的邻居
+            neighs = topo.get(rid, {})
+            msg = 'RESPONSE {} {}'.format(
+                rid,
+                ';'.join(f"{nb},{c}" for nb,c in neighs.items())
+            )
+            print(f"Sending to {rid}: {msg}")
+            conn.sendall((msg + '\n').encode())
+            
+            # 再检查是否是最后一个路由器，如果是则发送START给所有人
+            with lock:
+                if len(client_table) >= router_count and not router_ready.is_set():
+                    print(f"All {len(client_table)} routers connected. Setting ready event.")
+                    router_ready.set()
+                    # 通知所有客户端开始DV算法
+                    for router_id, router_conn in client_table.items():
+                        try:
+                            router_conn.sendall(f"START\n".encode())
+                            print(f"Sent START to {router_id}")
+                        except Exception as e:
+                            print(f"Failed to send START to {router_id}: {e}")
             
             # return the neighbors list
             neighs = topo.get(rid, {})  # 使用get避免KeyError
