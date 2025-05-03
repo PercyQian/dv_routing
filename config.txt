@@ -1,0 +1,7 @@
+# format:<RouterID> <neighbor1,cost1>;<neighbor2,cost2>;...
+u x,5;w,3;v,7;y,-1;z,-1
+x u,5;w,4;v,-1;y,7;z,9
+w u,3;x,4;v,3;y,8;z,-1
+v x,-1;w,3;u,7;y,4;z,-1
+y x,7;w,8;u,-1;v,4;z,2
+z x,9;w,-1;u,-1;y,2;v,-1
