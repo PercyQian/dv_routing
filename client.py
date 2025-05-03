@@ -104,8 +104,29 @@ class DVClient:
         self.start_listener()
         # send one update first
         self.send_update()
-        # wait for convergence
-        time.sleep(5)
+        
+        # Wait for convergence using a real convergence detection
+        old_dv = {}
+        converged = False
+        max_iterations = 30
+        iteration = 0
+        
+        while not converged and iteration < max_iterations:
+            time.sleep(1)  # Check every second
+            iteration += 1
+            
+            # Check if DV has changed
+            if old_dv == self.dv:
+                converged = True
+            else:
+                old_dv = self.dv.copy()
+                print(f"[{self.rid}] DV at iteration {iteration}: {self.dv}")
+        
+        if converged:
+            print(f"[{self.rid}] Converged after {iteration} iterations")
+        else:
+            print(f"[{self.rid}] Did not converge after {max_iterations} iterations")
+        
         print(f"[{self.rid}] DV after convergence: {self.dv}")
         print(f"[{self.rid}] forwarding table: ")
         for dst, nh in self.next_hop.items():

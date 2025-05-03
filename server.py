@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import socket
 import threading
+import time
 
 # read the topology from the file
 def load_topology(filename):
@@ -19,7 +20,7 @@ def load_topology(filename):
     return topo
 
 # the thread for each client connection
-def handle_client(conn, addr, topo, client_table, lock):
+def handle_client(conn, addr, topo, client_table, lock, router_count, router_ready):
     rid = None
     try:
         data = conn.recv(1024).decode().strip()
@@ -28,6 +29,13 @@ def handle_client(conn, addr, topo, client_table, lock):
             _, rid = data.split()
             with lock:
                 client_table[rid] = conn
+                # Check if all routers are connected
+                if len(client_table) == router_count:
+                    router_ready.set()
+                    print(f"All {router_count} routers are connected.")
+                else:
+                    print(f"Router {rid} connected. Waiting for {router_count - len(client_table)} more routers.")
+                    
             # return the neighbors list
             neighs = topo[rid]
             # MESSAGE format: RESPONSE <RouterID> nb1,cost1;nb2,cost2;...
@@ -36,6 +44,13 @@ def handle_client(conn, addr, topo, client_table, lock):
                 ';'.join(f"{nb},{c}" for nb,c in neighs.items())
             )
             conn.sendall(msg.encode())
+            
+            # Wait for all routers to connect before proceeding
+            if not router_ready.is_set():
+                print(f"Router {rid} waiting for all routers to connect...")
+                router_ready.wait()
+                print(f"Router {rid} continuing after all routers connected.")
+                
         # loop forwarding UPDATE
         while True:
             data = conn.recv(4096).decode().strip()
@@ -67,6 +82,13 @@ def main():
     topo = load_topology('config.txt')
     client_table = {}  # RouterID -> conn
     lock = threading.Lock()
+    
+    # Count the expected number of routers from topology
+    router_count = len(topo)
+    print(f"Expecting {router_count} routers to connect")
+    
+    # Event to signal when all routers are connected
+    router_ready = threading.Event()
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.bind(('0.0.0.0', 5555))
@@ -77,7 +99,7 @@ def main():
         conn, addr = sock.accept()
         threading.Thread(
             target=handle_client,
-            args=(conn, addr, topo, client_table, lock),
+            args=(conn, addr, topo, client_table, lock, router_count, router_ready),
             daemon=True
         ).start()
 
