@@ -7,7 +7,7 @@ import time
 def parse_neighbors(s):
     m = {}
     for seg in s.split(';'):
-        if not seg.strip():  # 跳过空段
+        if not seg.strip():  # skip empty segments
             continue
         try:
             parts = seg.split(',')
@@ -29,14 +29,14 @@ class DVClient:
 
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.connect(('127.0.0.1', 5555))
-        # 使用 makefile 逐行读取服务器消息
+        # use makefile to read server messages line by line
         self.file = self.sock.makefile('r')
 
     def join(self):
-        # 发送 JOIN 并同步读取服务器的 RESPONSE
+        # send JOIN and read the server's RESPONSE
         self.sock.sendall(f"JOIN {self.rid}\n".encode())
         print(f"[{self.rid}] Sent JOIN, waiting for RESPONSE")
-        # 逐行读取直到收到合法的 RESPONSE
+        # read line by line until a valid RESPONSE is received
         while True:
             line = self.file.readline()
             if not line:
@@ -77,30 +77,30 @@ class DVClient:
                     parts = line.split(maxsplit=2)
                     _, src, body = parts
                     
-                    # 只处理直接连接且可达的邻居的更新
+                    # only process updates from directly connected and reachable neighbors
                     if src not in self.neigh or self.neigh[src] < 0:
-                        print(f"[{self.rid}] 忽略来自非直接邻居或不可达邻居的更新: {src}")
+                        print(f"[{self.rid}] ignoring update from non-direct neighbor or unreachable neighbor: {src}")
                         continue
                     
-                    # 邻居到各目的地的距离向量
+                    # distance vector from neighbors to destinations
                     nb_dv = parse_neighbors(body)
                     updated = False
                     
-                    # 通过当前邻居src尝试更新到其他目的地的路径
-                    cost_to_nb = self.neigh[src]  # 当前路由器到src的成本
+                    # try to update the path to other destinations through the current neighbor
+                    cost_to_nb = self.neigh[src]  # the cost from current router to src
                     for dst, dst_cost in nb_dv.items():
-                        # 计算新路径：当前路由器->src->dst
+                        # calculate the new path: current router->src->dst
                         new_cost = cost_to_nb + dst_cost
                         
-                        # 如果发现更短路径，更新DV和转发表
+                        # if a shorter path is found, update DV and forwarding table
                         if dst not in self.dv or new_cost < self.dv[dst]:
                             self.dv[dst] = new_cost
-                            self.next_hop[dst] = src  # 下一跳是src
+                            self.next_hop[dst] = src  # the next hop is src
                             updated = True
                     if updated:
                         self.send_update()
                     continue
-                # 其它消息
+                # other messages
                 print(f"[{self.rid}] warning: unknown message: {line}")
         threading.Thread(target=run, daemon=True).start()
 
@@ -110,14 +110,14 @@ class DVClient:
         self.sock.sendall((msg + '\n').encode())
 
     def run(self):
-        # 发送JOIN并等待RESPONSE，初始化dv/next_hop
+        # send JOIN and wait for RESPONSE, initialize dv/next_hop
         self.join()
         
-        # 初始化时不要立即发送UPDATE，而是等待START
+        # do not send UPDATE immediately, wait for START
         print(f"[{self.rid}] initial DV: {self.dv}")
-        print(f"[{self.rid}] 等待服务器START信号...")
+        print(f"[{self.rid}] waiting for server START signal...")
         
-        # 启动监听线程，但不立即发送更新
+        # start the listener thread, but do not send UPDATE immediately
         self.start_received = False
         
         def start_listener():
@@ -127,56 +127,56 @@ class DVClient:
                     continue
                 print(f"[{self.rid}] Processing line: {line}")
                 
-                # 检测START信号
+                # detect START signal
                 if line == "START":
-                    print(f"[{self.rid}] 收到START信号，开始DV算法")
+                    print(f"[{self.rid}] received START signal, starting DV algorithm")
                     self.start_received = True
-                    # 收到START信号后发送第一次更新
+                    # send the first UPDATE after receiving START
                     self.send_update()
                     continue
                     
-                # UPDATE消息处理（和原来相同）
+                # UPDATE message processing (same as before)
                 if line.startswith("UPDATE"):
                     parts = line.split(maxsplit=2)
                     _, src, body = parts
                     
-                    # 只处理直接连接且可达的邻居的更新
+                    # only process updates from directly connected and reachable neighbors
                     if src not in self.neigh or self.neigh[src] < 0:
-                        print(f"[{self.rid}] 忽略来自非直接邻居或不可达邻居的更新: {src}")
+                        print(f"[{self.rid}] ignoring update from non-direct neighbor or unreachable neighbor: {src}")
                         continue
                     
-                    # 邻居到各目的地的距离向量
+                    # distance vector from neighbors to destinations
                     nb_dv = parse_neighbors(body)
                     updated = False
                     
-                    # 通过当前邻居src尝试更新到其他目的地的路径
-                    cost_to_nb = self.neigh[src]  # 当前路由器到src的成本
+                    # try to update the path to other destinations through the current neighbor
+                    cost_to_nb = self.neigh[src]  # the cost from current router to src
                     for dst, dst_cost in nb_dv.items():
-                        # 计算新路径：当前路由器->src->dst
+                        # calculate the new path: current router->src->dst
                         new_cost = cost_to_nb + dst_cost
                         
-                        # 如果发现更短路径，更新DV和转发表
+                        # if a shorter path is found, update DV and forwarding table
                         if dst not in self.dv or new_cost < self.dv[dst]:
                             self.dv[dst] = new_cost
-                            self.next_hop[dst] = src  # 下一跳是src
+                            self.next_hop[dst] = src  # the next hop is src
                             updated = True
                     if updated:
                         self.send_update()
                     continue
                 
-        # 启动监听
+        # start the listener
         threading.Thread(target=start_listener, daemon=True).start()
         
-        # 等待START信号
+        # wait for START signal
         while not self.start_received:
             time.sleep(0.5)
         
-        # START信号到达后，继续算法...
-        # 检测收敛 - 增加稳定次数要求和最大迭代次数
+        # after receiving START signal, continue the algorithm...
+        # detect convergence - increase the stable count requirement and maximum iterations
         old_dv = {}
         consecutive_stable = 0
-        required_stable = 6  # 增加到 6 次连续稳定
-        max_iterations = 60  # 增加最大迭代次数
+        required_stable = 6  # increase to 6 times consecutive stable
+        max_iterations = 60  # increase the maximum number of iterations
         
         iteration = 0
         
@@ -184,7 +184,7 @@ class DVClient:
             time.sleep(1)
             iteration += 1
             
-            # 检查DV是否变化
+            # check if DV has changed
             if old_dv == self.dv:
                 consecutive_stable += 1
                 print(f"[{self.rid}] DV stable for {consecutive_stable} iterations")
@@ -195,16 +195,16 @@ class DVClient:
                 consecutive_stable = 0
                 old_dv = self.dv.copy()
                 print(f"[{self.rid}] DV at iteration {iteration}: {self.dv}")
-                # 每次DV变化时发送更新
+                # send the UPDATE when DV changes
                 self.send_update()
         
-        # 打印最终结果
+        # print the final result
         print(f"[{self.rid}] Final DV: {self.dv}")
         print(f"[{self.rid}] Forwarding table: ")
         for dst, nh in self.next_hop.items():
             print(f"   to {dst} next hop {nh}, total cost {self.dv[dst]}")
         
-        # 发送EXIT消息
+        # send the EXIT message
         try:
             self.sock.sendall(f"EXIT {self.rid}\n".encode())
             print(f"[{self.rid}] Sent EXIT message")

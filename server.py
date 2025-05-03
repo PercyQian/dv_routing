@@ -29,20 +29,20 @@ def handle_client(conn, addr, topo, client_table, lock, router_count, router_rea
             _, rid = data.split()
             print(f"Received JOIN from router {rid}")
             
-            # 检查是否已经处理过这个路由器
+            # check if the router is already registered
             with lock:
                 if rid in client_table:
                     print(f"Router {rid} already registered, closing duplicate connection")
                     return
                 
-                # 记录这个路由器的连接
+                # record the connection
                 client_table[rid] = conn
                 print(f"Connected routers: {list(client_table.keys())}")
                 
                 if len(client_table) > router_count:
                     print(f"Warning: More routers ({len(client_table)}) than expected ({router_count})")
             
-            # 先给当前路由器发送RESPONSE，确保它知道自己的邻居
+            # send the RESPONSE to the current router to ensure it knows its neighbors
             neighs = topo.get(rid, {})
             msg = 'RESPONSE {} {}'.format(
                 rid,
@@ -51,12 +51,12 @@ def handle_client(conn, addr, topo, client_table, lock, router_count, router_rea
             print(f"Sending to {rid}: {msg}")
             conn.sendall((msg + '\n').encode())
             
-            # 再检查是否是最后一个路由器，如果是则发送START给所有人
+            # check if it's the last router, if so, send START to everyone
             with lock:
                 if len(client_table) >= router_count and not router_ready.is_set():
                     print(f"All {len(client_table)} routers connected. Setting ready event.")
                     router_ready.set()
-                    # 通知所有客户端开始DV算法
+                    # notify all clients to start DV algorithm
                     for router_id, router_conn in client_table.items():
                         try:
                             router_conn.sendall(f"START\n".encode())
@@ -65,7 +65,7 @@ def handle_client(conn, addr, topo, client_table, lock, router_count, router_rea
                             print(f"Failed to send START to {router_id}: {e}")
             
             # return the neighbors list
-            neighs = topo.get(rid, {})  # 使用get避免KeyError
+            neighs = topo.get(rid, {})  # use get to avoid KeyError
             if not neighs:
                 print(f"Warning: Router {rid} has no neighbors in topology!")
             
@@ -77,7 +77,7 @@ def handle_client(conn, addr, topo, client_table, lock, router_count, router_rea
             print(f"Sending to {rid}: {msg}")
             conn.sendall((msg + '\n').encode())
             
-            # 然后等待所有路由器连接
+            # then wait for all routers to connect
             if not router_ready.is_set():
                 print(f"Router {rid} waiting for all routers to connect...")
                 router_ready.wait()
@@ -97,9 +97,9 @@ def handle_client(conn, addr, topo, client_table, lock, router_count, router_rea
             # UPDATE <source> <dest1,c1;dest2,c2;...>
             if data.startswith('UPDATE'):
                 _, src, body = data.split(maxsplit=2)
-                # 只向可以直接通信的邻居转发
+                # only forward to neighbors that can communicate
                 for nb, cost in topo[src].items():
-                    if cost >= 0 and nb in client_table:  # 确保只转发给cost >= 0的路由器
+                    if cost >= 0 and nb in client_table:  # ensure only forwarding to routers with cost >= 0
                         try:
                             client_table[nb].sendall((data + '\n').encode())
                         except (BrokenPipeError, ConnectionResetError, OSError) as e:
@@ -117,7 +117,7 @@ def handle_client(conn, addr, topo, client_table, lock, router_count, router_rea
                 del client_table[rid]
                 if len(client_table) == 0:
                     print("All routers have exited. Server shutting down.")
-                    # 可以在这里添加服务器关闭逻辑
+                    # can add server shutdown logic here
         conn.close()
 
 def main():
@@ -125,7 +125,7 @@ def main():
     client_table = {}  # RouterID -> conn
     lock = threading.Lock()
     
-    # 打印读取到的拓扑信息
+    # print the loaded topology information
     print(f"Loaded topology with {len(topo)} routers:")
     for router, neighbors in topo.items():
         print(f"  Router {router}: {neighbors}")
@@ -137,13 +137,13 @@ def main():
     # Event to signal when all routers are connected
     router_ready = threading.Event()
     
-    # 添加超时机制，如果60秒内没有收到所有路由器，也开始算法
+    # add timeout mechanism, if 60 seconds pass without receiving all routers, start the algorithm
     def timeout_handler():
-        time.sleep(60)  # 等待60秒
+        time.sleep(60)  # wait 60 seconds
         if not router_ready.is_set():
             print("Timeout waiting for all routers. Starting with connected routers.")
             router_ready.set()
-            # 通知已连接的客户端开始
+            # notify the connected clients to start
             with lock:
                 for router_id, router_conn in client_table.items():
                     try:
@@ -151,7 +151,7 @@ def main():
                     except Exception as e:
                         print(f"Failed to send START to {router_id}: {e}")
     
-    # 启动超时线程
+    # start the timeout thread
     threading.Thread(target=timeout_handler, daemon=True).start()
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -175,5 +175,5 @@ def main():
 if __name__ == '__main__':
     main()
 
-required_stable = 4  # 增加到4次连续稳定
-max_iterations = 50  # 增加最大迭代次数
+required_stable = 4  # increase to 4 times consecutive stable
+max_iterations = 50  # increase the maximum number of iterations
