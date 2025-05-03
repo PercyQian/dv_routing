@@ -27,12 +27,19 @@ def handle_client(conn, addr, topo, client_table, lock, router_count, router_rea
         # JOIN message format: JOIN <RouterID>
         if data.startswith('JOIN'):
             _, rid = data.split()
+            
+            # 检查是否已经处理过这个路由器
             with lock:
+                if rid in client_table:
+                    print(f"Router {rid} already registered, closing duplicate connection")
+                    return
+                
                 client_table[rid] = conn
                 # Check if all routers are connected
                 if len(client_table) == router_count:
-                    router_ready.set()
-                    print(f"All {router_count} routers are connected.")
+                    if not router_ready.is_set():  # 防止重复设置
+                        router_ready.set()
+                        print(f"All {router_count} routers are connected.")
                 else:
                     print(f"Router {rid} connected. Waiting for {router_count - len(client_table)} more routers.")
                     
@@ -45,9 +52,12 @@ def handle_client(conn, addr, topo, client_table, lock, router_count, router_rea
             )
             conn.sendall(msg.encode())
             
-            # Wait for all routers to connect before proceeding
+            # 等待所有路由器连接
+            waiting_reported = False  # 防止多次打印等待消息
             if not router_ready.is_set():
-                print(f"Router {rid} waiting for all routers to connect...")
+                if not waiting_reported:
+                    print(f"Router {rid} waiting for all routers to connect...")
+                    waiting_reported = True
                 router_ready.wait()
                 print(f"Router {rid} continuing after all routers connected.")
                 
