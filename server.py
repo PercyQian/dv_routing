@@ -97,9 +97,9 @@ def handle_client(conn, addr, topo, client_table, lock, router_count, router_rea
             # UPDATE <source> <dest1,c1;dest2,c2;...>
             if data.startswith('UPDATE'):
                 _, src, body = data.split(maxsplit=2)
-                # find the direct neighbors of src
+                # 只向可以直接通信的邻居转发
                 for nb, cost in topo[src].items():
-                    if cost >= 0 and nb in client_table:
+                    if cost >= 0 and nb in client_table:  # 确保只转发给cost >= 0的路由器
                         try:
                             client_table[nb].sendall((data + '\n').encode())
                         except (BrokenPipeError, ConnectionResetError, OSError) as e:

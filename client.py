@@ -75,21 +75,28 @@ class DVClient:
                 # UPDATE
                 if line.startswith("UPDATE"):
                     parts = line.split(maxsplit=2)
-                    if len(parts) != 3:
-                        print(f"[{self.rid}] warning: invalid UPDATE message: {line}")
-                        continue
                     _, src, body = parts
+                    
+                    # 只处理直接连接且可达的邻居的更新
+                    if src not in self.neigh or self.neigh[src] < 0:
+                        print(f"[{self.rid}] 忽略来自非直接邻居或不可达邻居的更新: {src}")
+                        continue
+                    
+                    # 邻居到各目的地的距离向量
                     nb_dv = parse_neighbors(body)
                     updated = False
-                    for dst, cost_to_nb in self.neigh.items():
-                        if cost_to_nb < 0:
-                            continue
-                        for d2, c2 in nb_dv.items():
-                            new_cost = cost_to_nb + c2
-                            if d2 not in self.dv or new_cost < self.dv[d2]:
-                                self.dv[d2] = new_cost
-                                self.next_hop[d2] = dst
-                                updated = True
+                    
+                    # 通过当前邻居src尝试更新到其他目的地的路径
+                    cost_to_nb = self.neigh[src]  # 当前路由器到src的成本
+                    for dst, dst_cost in nb_dv.items():
+                        # 计算新路径：当前路由器->src->dst
+                        new_cost = cost_to_nb + dst_cost
+                        
+                        # 如果发现更短路径，更新DV和转发表
+                        if dst not in self.dv or new_cost < self.dv[dst]:
+                            self.dv[dst] = new_cost
+                            self.next_hop[dst] = src  # 下一跳是src
+                            updated = True
                     if updated:
                         self.send_update()
                     continue
@@ -131,21 +138,28 @@ class DVClient:
                 # UPDATE消息处理（和原来相同）
                 if line.startswith("UPDATE"):
                     parts = line.split(maxsplit=2)
-                    if len(parts) != 3:
-                        print(f"[{self.rid}] warning: invalid UPDATE message: {line}")
-                        continue
                     _, src, body = parts
+                    
+                    # 只处理直接连接且可达的邻居的更新
+                    if src not in self.neigh or self.neigh[src] < 0:
+                        print(f"[{self.rid}] 忽略来自非直接邻居或不可达邻居的更新: {src}")
+                        continue
+                    
+                    # 邻居到各目的地的距离向量
                     nb_dv = parse_neighbors(body)
                     updated = False
-                    for dst, cost_to_nb in self.neigh.items():
-                        if cost_to_nb < 0:
-                            continue
-                        for d2, c2 in nb_dv.items():
-                            new_cost = cost_to_nb + c2
-                            if d2 not in self.dv or new_cost < self.dv[d2]:
-                                self.dv[d2] = new_cost
-                                self.next_hop[d2] = dst
-                                updated = True
+                    
+                    # 通过当前邻居src尝试更新到其他目的地的路径
+                    cost_to_nb = self.neigh[src]  # 当前路由器到src的成本
+                    for dst, dst_cost in nb_dv.items():
+                        # 计算新路径：当前路由器->src->dst
+                        new_cost = cost_to_nb + dst_cost
+                        
+                        # 如果发现更短路径，更新DV和转发表
+                        if dst not in self.dv or new_cost < self.dv[dst]:
+                            self.dv[dst] = new_cost
+                            self.next_hop[dst] = src  # 下一跳是src
+                            updated = True
                     if updated:
                         self.send_update()
                     continue
