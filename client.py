@@ -32,33 +32,84 @@ class DVClient:
 
     def join(self):
         self.sock.sendall(f"JOIN {self.rid}".encode())
-        resp = self.sock.recv(1024).decode().strip()
-        # RESPONSE <rid> nb1,c1;...
-        _, _, body = resp.split(maxsplit=2)
-        self.neigh = parse_neighbors(body)
-        # initialize dv
-        for node, cost in self.neigh.items():
-            if cost >= 0:
-                self.dv[node] = cost
-                self.next_hop[node] = node
-        self.dv[self.rid] = 0
-        self.next_hop[self.rid] = self.rid
+        
+        # 创建一个缓冲区来处理可能混合的消息
+        buffer = ""
+        response_received = False
+        
+        while not response_received:
+            chunk = self.sock.recv(4096).decode()
+            if not chunk:
+                raise ConnectionError("Connection closed by server")
+            
+            buffer += chunk
+            lines = buffer.split('\n')
+            buffer = lines.pop()  # 保留最后一个不完整的行
+            
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                
+                print(f"[{self.rid}] Processing line: {line}")
+                
+                # 检查是否是START消息
+                if line == "START":
+                    print(f"[{self.rid}] Received START message")
+                    self.start_received = True
+                    continue
+                
+                # 检查是否是UPDATE消息(存储起来以后处理)
+                if line.startswith("UPDATE"):
+                    print(f"[{self.rid}] Received UPDATE, storing for later")
+                    self.pending_updates = getattr(self, 'pending_updates', [])
+                    self.pending_updates.append(line)
+                    continue
+                
+                # 尝试解析RESPONSE消息
+                if line.startswith("RESPONSE"):
+                    parts = line.split(maxsplit=2)
+                    if len(parts) >= 3 and parts[1] == self.rid:
+                        print(f"[{self.rid}] Valid RESPONSE: {line}")
+                        _, _, body = parts
+                        
+                        self.neigh = parse_neighbors(body)
+                        # 初始化DV
+                        for node, cost in self.neigh.items():
+                            if cost >= 0:
+                                self.dv[node] = cost
+                                self.next_hop[node] = node
+                        self.dv[self.rid] = 0
+                        self.next_hop[self.rid] = self.rid
+                        
+                        response_received = True
+                        break
+                    else:
+                        print(f"[{self.rid}] Invalid RESPONSE format: {line}")
 
     def start_listener(self):
         self.file = self.sock.makefile()
+        self.start_received = False  # 添加标记
+        
         def run():
             while True:
                 try:
                     data = self.sock.recv(4096).decode().strip()
                     if not data: break
                     
-                    # handle possible multiple messages
                     messages = data.split('\n')
                     for message in messages:
                         message = message.strip()
                         if not message:
                             continue
-                            
+                        
+                        # 处理START消息
+                        if message == "START":
+                            print(f"[{self.rid}] Received START from server")
+                            self.start_received = True
+                            continue
+                        
+                        # 处理UPDATE消息
                         try:
                             # UPDATE x nb1,c1;...
                             parts = message.split(maxsplit=2)
@@ -102,36 +153,66 @@ class DVClient:
         self.join()
         print(f"[{self.rid}] initial DV: {self.dv}")
         self.start_listener()
-        # send one update first
-        self.send_update()
         
-        # Wait for convergence using a real convergence detection
-        old_dv = {}
-        converged = False
-        max_iterations = 30
-        iteration = 0
-        
-        while not converged and iteration < max_iterations:
-            time.sleep(1)  # Check every second
-            iteration += 1
+        # 等待服务器的START消息或超时
+        start_received = False
+        try:
+            # 接收START消息的逻辑已经在start_listener中处理
+            # 这里等待一段时间，如果没收到START就开始DV计算
+            for _ in range(20):  # 最多等待20秒
+                if hasattr(self, 'start_received') and self.start_received:
+                    start_received = True
+                    break
+                time.sleep(1)
             
-            # Check if DV has changed
-            if old_dv == self.dv:
-                converged = True
-            else:
-                old_dv = self.dv.copy()
-                print(f"[{self.rid}] DV at iteration {iteration}: {self.dv}")
+            if not start_received:
+                print(f"[{self.rid}] No START received from server, starting anyway")
         
-        if converged:
-            print(f"[{self.rid}] Converged after {iteration} iterations")
-        else:
-            print(f"[{self.rid}] Did not converge after {max_iterations} iterations")
+            # 发送第一次更新
+            self.send_update()
+            
+            # 检测收敛
+            old_dv = {}
+            consecutive_stable = 0
+            required_stable = 2  # 需要连续多少次稳定才视为收敛
+            max_iterations = 30
+            iteration = 0
+            
+            while iteration < max_iterations:
+                time.sleep(1)
+                iteration += 1
+                
+                # 检查DV是否变化
+                if old_dv == self.dv:
+                    consecutive_stable += 1
+                    print(f"[{self.rid}] DV stable for {consecutive_stable} iterations")
+                    if consecutive_stable >= required_stable:
+                        print(f"[{self.rid}] Converged after {iteration} iterations")
+                        break
+                else:
+                    consecutive_stable = 0
+                    old_dv = self.dv.copy()
+                    print(f"[{self.rid}] DV at iteration {iteration}: {self.dv}")
+                    # 每次DV变化时发送更新
+                    self.send_update()
+            
+            # 打印最终结果
+            print(f"[{self.rid}] Final DV: {self.dv}")
+            print(f"[{self.rid}] Forwarding table: ")
+            for dst, nh in self.next_hop.items():
+                print(f"   to {dst} next hop {nh}, total cost {self.dv[dst]}")
+            
+            # 发送EXIT消息
+            try:
+                self.sock.sendall(f"EXIT {self.rid}\n".encode())
+                print(f"[{self.rid}] Sent EXIT message")
+            except Exception as e:
+                print(f"[{self.rid}] Failed to send EXIT: {e}")
         
-        print(f"[{self.rid}] DV after convergence: {self.dv}")
-        print(f"[{self.rid}] forwarding table: ")
-        for dst, nh in self.next_hop.items():
-            print(f"   to {dst} next hop {nh}, total cost {self.dv[dst]}")
-        self.sock.close()
+        except KeyboardInterrupt:
+            print(f"[{self.rid}] Interrupted by user")
+        finally:
+            self.sock.close()
 
 if __name__ == '__main__':
     import sys
