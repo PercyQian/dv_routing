@@ -49,15 +49,15 @@ def handle_client(conn, addr, topo, client_table, lock):
                         try:
                             client_table[nb].sendall(data.encode())
                         except (BrokenPipeError, ConnectionResetError, OSError) as e:
-                            print(f"发送到路由器 {nb} 时出错: {e}")
-                            # 移除已断开的连接
+                            print(f"send to {nb} failed: {e}")
+                            # remove the disconnected connection
                             with lock:
                                 if nb in client_table:
                                     del client_table[nb]
     except Exception as e:
-        print(f"处理客户端 {addr} 时出错: {e}")
+        print(f"error handling client {addr}: {e}")
     finally:
-        # 确保连接关闭且客户端从表中移除
+        # ensure the connection is closed and the client is removed from the table
         if rid and rid in client_table:
             with lock:
                 del client_table[rid]

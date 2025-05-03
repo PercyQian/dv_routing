@@ -12,12 +12,12 @@ def parse_neighbors(s):
         try:
             parts = seg.split(',')
             if len(parts) != 2:
-                print(f"警告: 格式错误的段 '{seg}'，跳过")
+                print(f"warning: invalid segment '{seg}', skipped")
                 continue
             nb, cost = parts
             m[nb] = int(cost)
         except Exception as e:
-            print(f"解析段 '{seg}' 时出错: {e}")
+            print(f"error parsing segment '{seg}': {e}")
     return m
 
 class DVClient:
@@ -52,7 +52,7 @@ class DVClient:
                     data = self.sock.recv(4096).decode().strip()
                     if not data: break
                     
-                    # 处理可能的多条消息
+                    # handle possible multiple messages
                     messages = data.split('\n')
                     for message in messages:
                         message = message.strip()
@@ -63,13 +63,13 @@ class DVClient:
                             # UPDATE x nb1,c1;...
                             parts = message.split(maxsplit=2)
                             if len(parts) != 3:
-                                print(f"[{self.rid}] 警告：收到格式错误的消息：{message}")
+                                print(f"[{self.rid}] warning: received invalid message: {message}")
                                 continue
                             
                             _, src, body = parts
                             nb_dv = parse_neighbors(body)
                             if not nb_dv:  # 如果解析结果为空，跳过
-                                print(f"[{self.rid}] 警告：消息体解析为空：{body}")
+                                print(f"[{self.rid}] warning: message body is empty: {body}")
                                 continue
                                 
                             updated = False
@@ -85,11 +85,11 @@ class DVClient:
                             if updated:
                                 self.send_update()
                         except Exception as e:
-                            print(f"[{self.rid}] 处理消息时出错：{message}")
-                            print(f"错误：{e}")
+                            print(f"[{self.rid}] error handling message: {message}")
+                            print(f"error: {e}")
                             continue
                 except Exception as e:
-                    print(f"[{self.rid}] 接收数据时出错：{e}")
+                    print(f"[{self.rid}] error receiving data: {e}")
                     break
         threading.Thread(target=run, daemon=True).start()
 
@@ -100,16 +100,16 @@ class DVClient:
 
     def run(self):
         self.join()
-        print(f"[{self.rid}] 初始 DV: {self.dv}")
+        print(f"[{self.rid}] initial DV: {self.dv}")
         self.start_listener()
         # send one update first
         self.send_update()
         # wait for convergence
         time.sleep(5)
-        print(f"[{self.rid}] 收敛后 DV: {self.dv}")
-        print(f"[{self.rid}] 转发表: ")
+        print(f"[{self.rid}] DV after convergence: {self.dv}")
+        print(f"[{self.rid}] forwarding table: ")
         for dst, nh in self.next_hop.items():
-            print(f"  到 {dst} 下一跳 {nh}，总代价 {self.dv[dst]}")
+            print(f"   to {dst} next hop {nh}, total cost {self.dv[dst]}")
         self.sock.close()
 
 if __name__ == '__main__':
