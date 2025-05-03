@@ -20,6 +20,7 @@ def load_topology(filename):
 
 # the thread for each client connection
 def handle_client(conn, addr, topo, client_table, lock):
+    rid = None
     try:
         data = conn.recv(1024).decode().strip()
         # JOIN message format: JOIN <RouterID>
@@ -45,8 +46,21 @@ def handle_client(conn, addr, topo, client_table, lock):
                 # find the direct neighbors of src
                 for nb, cost in topo[src].items():
                     if cost >= 0 and nb in client_table:
-                        client_table[nb].sendall(data.encode())
+                        try:
+                            client_table[nb].sendall(data.encode())
+                        except (BrokenPipeError, ConnectionResetError, OSError) as e:
+                            print(f"发送到路由器 {nb} 时出错: {e}")
+                            # 移除已断开的连接
+                            with lock:
+                                if nb in client_table:
+                                    del client_table[nb]
+    except Exception as e:
+        print(f"处理客户端 {addr} 时出错: {e}")
     finally:
+        # 确保连接关闭且客户端从表中移除
+        if rid and rid in client_table:
+            with lock:
+                del client_table[rid]
         conn.close()
 
 def main():
